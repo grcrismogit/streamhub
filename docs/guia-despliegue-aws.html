@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Despliegue StreamHub en AWS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: manual de campo — riel de fases fijo a la izquierda, pasos con checklist a la derecha; en móvil, una sola columna. */
+:root {
+  --paper: #f5f6fb;
+  --panel: #ffffff;
+  --ink: #161a2b;
+  --muted: #586079;
+  --line: #dbe0ec;
+  --accent: #2b4bd9;
+  --accent-soft: #e5eaff;
+  --ok: #1d8656;
+  --ok-soft: #e1f4ea;
+  --warn: #a5610a;
+  --warn-soft: #fff2dc;
+  --code-bg: #121630;
+  --code-fg: #e6e9f7;
+  --code-var: #ffd479;
+  --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d1020; --panel: #151a2f; --ink: #e8ebf7; --muted: #9aa2c0; --line: #273050;
+    --accent: #93a6ff; --accent-soft: #1d2552; --ok: #52c993; --ok-soft: #12301f;
+    --warn: #f1b75e; --warn-soft: #2f2410; --code-bg: #0a0d1b; --code-fg: #e6e9f7; --code-var: #ffd479;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d1020; --panel: #151a2f; --ink: #e8ebf7; --muted: #9aa2c0; --line: #273050;
+  --accent: #93a6ff; --accent-soft: #1d2552; --ok: #52c993; --ok-soft: #12301f;
+  --warn: #f1b75e; --warn-soft: #2f2410; --code-bg: #0a0d1b; --code-fg: #e6e9f7; --code-var: #ffd479;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.6 var(--font-body); margin: 0; }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 1.12rem; font-weight: 600; }
+p, ul, ol { margin: 0; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.88em; background: var(--accent-soft); padding: 0.08em 0.35em; border-radius: 5px; overflow-wrap: anywhere; }
+kbd { font-family: var(--font-mono); font-size: 0.82em; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 0.35em; background: var(--panel); }
+mark.var { background: none; color: inherit; border-bottom: 2px solid var(--accent); font-weight: 700; }
+pre mark.var { color: var(--code-var); border-bottom-color: color-mix(in srgb, var(--code-var) 50%, transparent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 28px 20px 80px; }
+
+/* ---------- Encabezado ---------- */
+.top { display: grid; gap: 14px; margin-bottom: 26px; }
+.eyebrow { font: 600 0.78rem var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.lede { color: var(--muted); max-width: 68ch; font-size: 1.05rem; }
+.arch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font: 0.82rem var(--font-mono); color: var(--muted); }
+.arch b { color: var(--ink); background: var(--panel); border: 1px solid var(--line); padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+
+.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+.tabs button { font: 700 0.95rem var(--font-body); color: var(--muted); background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* ---------- Layout principal ---------- */
+.layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 32px; align-items: start; }
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); display: grid; gap: 16px; }
+.meter { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 8px; }
+.meter strong { font: 800 1.6rem var(--font-display); font-variant-numeric: tabular-nums; }
+.meter progress { width: 100%; height: 8px; appearance: none; border: 0; border-radius: 99px; overflow: hidden; background: var(--line); }
+.meter progress::-webkit-progress-bar { background: var(--line); }
+.meter progress::-webkit-progress-value { background: var(--ok); }
+.meter progress::-moz-progress-bar { background: var(--ok); }
+.meter small { color: var(--muted); }
+.phases { list-style: none; padding: 0; display: grid; gap: 2px; counter-reset: ph; }
+.phases a { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; text-decoration: none; color: var(--ink); padding: 7px 10px; border-radius: 8px; font-size: 0.93rem; }
+.phases a:hover { background: var(--accent-soft); }
+.phases .n { font: 600 0.78rem var(--font-mono); color: var(--muted); }
+.phases .c { font: 0.75rem var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.phases a.done .c { color: var(--ok); font-weight: 600; }
+.phases a.done .n::before { content: '✓'; color: var(--ok); }
+.phases a.done .n span { display: none; }
+.rail-tools { display: grid; gap: 8px; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--muted); font: 0.85rem var(--font-body); text-decoration: underline; cursor: pointer; justify-self: start; }
+
+/* ---------- Panel de datos ---------- */
+.setup { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; display: grid; gap: 16px; margin-bottom: 36px; }
+.setup header { display: grid; gap: 4px; }
+.setup header p { color: var(--muted); font-size: 0.95rem; }
+.account { display: flex; flex-wrap: wrap; gap: 8px; }
+.account label { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 700; font-size: 0.92rem; }
+.account label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field span { font-size: 0.82rem; font-weight: 700; }
+.field input { font: 0.92rem var(--font-mono); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); width: 100%; }
+.field input:focus { outline: none; border-color: var(--accent); }
+.field small { color: var(--muted); font-size: 0.78rem; }
+.field small.err { color: var(--warn); font-weight: 700; }
+.derived { font: 0.8rem var(--font-mono); color: var(--muted); display: grid; gap: 2px; border-top: 1px dashed var(--line); padding-top: 12px; overflow-wrap: anywhere; }
+
+/* ---------- Fases y pasos ---------- */
+.phase { display: grid; gap: 18px; margin-bottom: 48px; scroll-margin-top: 16px; }
+.phase > header { display: grid; gap: 6px; }
+.phase > header p { color: var(--muted); max-width: 70ch; }
+.where { font: 0.8rem var(--font-mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.where span + span::before { content: '›'; margin-right: 4px; color: var(--line); }
+
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; display: grid; gap: 12px; min-width: 0; }
+.step.is-done { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.step-head { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
+.step-head input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--ok); cursor: pointer; }
+.step-head label { cursor: pointer; display: grid; gap: 2px; }
+.step-head .sid { font: 600 0.75rem var(--font-mono); color: var(--muted); }
+.step.is-done h3 { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ok) 70%, transparent); }
+.step ol, .step ul { padding-left: 1.3em; display: grid; gap: 6px; }
+.step li::marker { color: var(--muted); font-family: var(--font-mono); font-size: 0.85em; }
+.step > p { max-width: 75ch; }
+
+table.cfg { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table.cfg th, table.cfg td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.cfg tr:last-child > * { border-bottom: 0; }
+table.cfg th { font-weight: 700; color: var(--muted); font-size: 0.82rem; white-space: nowrap; width: 38%; }
+table.cfg td b { font-family: var(--font-mono); font-size: 0.9em; }
+
+.code { position: relative; min-width: 0; }
+.code pre { background: var(--code-bg); color: var(--code-fg); font: 0.84rem/1.55 var(--font-mono); padding: 18px 16px 14px; border-radius: 8px; overflow-x: auto; margin: 0; }
+.code .lang { position: absolute; left: 12px; top: -9px; font: 600 0.68rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; }
+.copy { position: absolute; top: -11px; right: 10px; font: 700 0.72rem var(--font-body); background: var(--accent); color: var(--panel); border: 0; border-radius: 99px; padding: 3px 12px; cursor: pointer; }
+.copy:hover { filter: brightness(1.1); }
+
+.note { border-radius: 8px; padding: 10px 14px; font-size: 0.93rem; display: grid; gap: 4px; }
+.note b:first-child { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.see { background: var(--ok-soft); }
+.see b:first-child { color: var(--ok); }
+.warn { background: var(--warn-soft); }
+.warn b:first-child { color: var(--warn); }
+.info { background: var(--accent-soft); }
+.info b:first-child { color: var(--accent); }
+.shot { display: inline-flex; gap: 8px; align-items: center; justify-self: start; font: 0.8rem var(--font-mono); border: 1px dashed var(--muted); border-radius: 999px; padding: 3px 12px; color: var(--muted); }
+.shot::before { content: ''; width: 10px; height: 8px; border: 2px solid currentColor; border-radius: 2px; }
+
+details.trouble { border-top: 1px dashed var(--line); padding-top: 10px; }
+details.trouble summary { cursor: pointer; font-weight: 700; font-size: 0.9rem; color: var(--warn); }
+details.trouble dl { margin: 10px 0 0; display: grid; gap: 8px; font-size: 0.92rem; }
+details.trouble dt { font-weight: 700; }
+details.trouble dd { margin: 0; color: var(--muted); }
+
+/* Contenido condicional por tipo de cuenta */
+:root:not(.lab) .only-lab, :root.lab .only-personal { display: none !important; }
+
+/* ---------- Requisitos ---------- */
+.req { display: grid; gap: 28px; }
+.req section { display: grid; gap: 10px; }
+table.matrix { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+table.matrix th, table.matrix td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.matrix thead th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.pill { display: inline-block; font: 700 0.72rem var(--font-mono); border-radius: 99px; padding: 1px 9px; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.aws { background: var(--accent-soft); color: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 0.9rem; align-items: center; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .rail { position: static; }
+  .phases { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+@media (max-width: 520px) {
+  .wrap { padding-inline: 16px; }
+  .step { padding: 14px; }
+  table.cfg th { width: auto; white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">Guía práctica · Plataforma de videos</p>
+    <h1>Despliegue de StreamHub en AWS, paso a paso</h1>
+    <p class="lede">Sigue las fases en orden. Escribe tus datos en el panel “Tus datos” y todos los comandos y nombres de la guía se completan solos. Marca cada paso al terminarlo: tu avance queda guardado en este navegador.</p>
+    <p class="arch" aria-label="Arquitectura"><b>React (dist/)</b> → S3 Frontend · <b>FastAPI</b> → EC2 · <b>PostgreSQL</b> → RDS · <b>MP4</b> → S3 Videos · <b>JPG/PNG</b> → S3 Miniaturas</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Secciones">
+    <button role="tab" id="tab-guia" aria-controls="panel-guia" aria-selected="true">Guía de despliegue</button>
+    <button role="tab" id="tab-req" aria-controls="panel-req" aria-selected="false">Cumplimiento de la actividad</button>
+  </nav>
+
+  <!-- ===================== GUÍA ===================== -->
+  <div id="panel-guia" role="tabpanel" aria-labelledby="tab-guia" class="layout">
+    <aside class="rail" aria-label="Progreso">
+      <section class="meter" aria-live="polite">
+        <small>Pasos completados</small>
+        <strong id="count">0 / 0</strong>
+        <progress id="bar" max="1" value="0"></progress>
+      </section>
+      <nav aria-label="Fases">
+        <ol class="phases" id="phase-nav"></ol>
+      </nav>
+      <div class="rail-tools">
+        <button class="linkbtn" id="reset" type="button">Reiniciar mi progreso</button>
+        <p id="reset-confirm" hidden><button class="linkbtn" id="reset-yes" type="button">Sí, borrar las marcas</button> · <button class="linkbtn" id="reset-no" type="button">Cancelar</button></p>
+      </div>
+    </aside>
+
+    <article>
+      <!-- Panel de datos -->
+      <section class="setup" aria-labelledby="setup-title" id="datos">
+        <header>
+          <h2 id="setup-title">Tus datos</h2>
+          <p>Lo que escribas aquí reemplaza los valores <mark class="var">subrayados</mark> en toda la guía. Algunos campos los llenarás más adelante (te lo indicará el paso correspondiente). Nunca escribas contraseñas aquí.</p>
+        </header>
+        <fieldset class="account" style="border:0;padding:0;margin:0">
+          <legend style="font-weight:700;font-size:.82rem;margin-bottom:6px">¿Qué cuenta de AWS usas?</legend>
+          <label><input type="radio" name="acct" id="acct-personal" value="personal" checked> Cuenta propia de AWS</label>
+          <label><input type="radio" name="acct" id="acct-lab" value="lab"> AWS Academy (Learner Lab)</label>
+        </fieldset>
+        <div class="fields">
+          <label class="field"><span>Sufijo único para los buckets</span><input id="v-suffix" data-var="suffix" value="cris2026" autocomplete="off" spellcheck="false"><small id="suffix-msg">Minúsculas, números y guiones. Ej.: tu nombre + año.</small></label>
+          <label class="field"><span>Región</span><input id="v-region" data-var="region" value="us-east-1" spellcheck="false"><small>Learner Lab solo permite us-east-1 o us-west-2.</small></label>
+          <label class="field"><span>URL de tu repositorio</span><input id="v-repo" data-var="repo" value="https://github.com/TU-USUARIO/streamhub" spellcheck="false"><small>Se llena en la fase 0.</small></label>
+          <label class="field"><span>Endpoint de RDS</span><input id="v-rds" data-var="rds" value="streamhub-db.XXXXXXXX.us-east-1.rds.amazonaws.com" spellcheck="false"><small>Se llena en el paso 2.2.</small></label>
+          <label class="field"><span>IP elástica de EC2</span><input id="v-eip" data-var="eip" value="IP-ELASTICA" spellcheck="false"><small>Se llena en el paso 5.2.</small></label>
+          <label class="field"><span>Archivo de la llave SSH</span><input id="v-key" data-var="keyfile" value="streamhub-key.pem" spellcheck="false"><small class="only-lab">En Learner Lab es <code>labsuser.pem</code>.</small><small class="only-personal">El .pem que descargas en el paso 5.1.</small></label>
+        </div>
+        <p class="derived tpl" aria-label="Nombres calculados">
+          <span>Bucket frontend: {{frontend}}</span>
+          <span>Bucket videos: {{videos}}</span>
+          <span>Bucket miniaturas: {{thumbs}}</span>
+          <span>URL de la SPA: {{website}}</span>
+          <span>URL de la API: http://{{eip}}/docs</span>
+        </p>
+      </section>
+
+      <!-- FASE 0 -->
+      <section class="phase" id="f0" data-title="Antes de empezar">
+        <header>
+          <p class="eyebrow">Fase 0</p>
+          <h2>Antes de empezar</h2>
+          <p>Prepara la cuenta y sube el código a GitHub, porque la instancia EC2 lo descargará desde ahí.</p>
+        </header>
+
+        <section class="step only-lab">
+          <div class="step-head"><input type="checkbox" id="s0-1l"><label for="s0-1l"><span class="sid">0.1</span><h3>Abre el laboratorio de AWS Academy</h3></label></div>
+          <ol>
+            <li>Entra a tu curso en AWS Academy → <b>Modules</b> → <b>Launch AWS Academy Learner Lab</b>.</li>
+            <li>Pulsa <b>Start Lab</b> y espera a que el círculo junto a “AWS” se ponga <b>verde</b> (1–3 minutos).</li>
+            <li>Haz clic en <b>AWS</b> (el texto con el círculo verde). Se abre la consola de AWS en otra pestaña.</li>
+            <li>Arriba a la derecha comprueba que la región sea <b>N. Virginia (us-east-1)</b>.</li>
+            <li>En la página del laboratorio pulsa <b>AWS Details</b> → junto a <b>SSH key</b> pulsa <b>Download PEM</b>. Guarda <code>labsuser.pem</code> en tu carpeta Descargas.</li>
+          </ol>
+          <div class="note warn"><b>Importante</b><p>En Learner Lab <b>no puedes crear roles IAM</b>; usarás el perfil que ya existe, <code>LabInstanceProfile</code>. La sesión dura unas horas; si se acaba, vuelve a pulsar Start Lab y revisa que tus recursos estén encendidos.</p></div>
+        </section>
+
+        <section class="step only-personal">
+          <div class="step-head"><input type="checkbox" id="s0-1p"><label for="s0-1p"><span class="sid">0.1</span><h3>Entra a la consola y elige la región</h3></label></div>
+          <ol>
+            <li>Inicia sesión en <a href="https://console.aws.amazon.com/" target="_blank" rel="noopener">console.aws.amazon.com</a>.</li>
+            <li>Arriba a la derecha, en el selector de región, elige <b>US East (N. Virginia) us-east-1</b>. Crea <b>todo</b> en la misma región.</li>
+            <li>Recomendado: en <b>Billing and Cost Management → Budgets</b> crea un presupuesto de 5 USD con alerta a tu correo.</li>
+          </ol>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s0-2"><label for="s0-2"><span class="sid">0.2</span><h3>Sube el proyecto a GitHub</h3></label></div>
+          <ol>
+            <li>En GitHub pulsa <b>New repository</b>, nómbralo <code>streamhub</code>, márcalo <b>Public</b> y <b>no</b> agregues README (ya existe).</li>
+            <li>Descomprime <code>streamhub.zip</code>, abre una terminal dentro de la carpeta <code>streamhub</code> y ejecuta:</li>
+          </ol>
+          <div class="code"><span class="lang">PowerShell / Bash</span><pre class="tpl">git init -b main
+git add .
+git status
+git commit -m "StreamHub: SPA React + FastAPI + AWS"
+git remote add origin {{repo}}.git
+git push -u origin main</pre></div>
+          <div class="note see"><b>Deberías ver</b><p>En <code>git status</code> aparecen <code>backend/</code>, <code>frontend/</code>, <code>docs/</code>… y <b>ningún</b> archivo <code>.env</code>, <code>node_modules</code> ni <code>dist</code> (el <code>.gitignore</code> los excluye).</p></div>
+          <p>Copia la URL del repositorio (sin <code>.git</code>) en el campo <b>URL de tu repositorio</b> de arriba.</p>
+        </section>
+      </section>
+
+      <!-- FASE 1 -->
+      <section class="phase" id="f1" data-title="Security Groups">
+        <header>
+          <p class="eyebrow">Fase 1</p>
+          <h2>Security Groups (firewalls)</h2>
+          <p>Un Security Group decide qué tráfico puede entrar a un recurso. Crearás dos: uno para la API (abierto a internet en el puerto 80) y otro para la base de datos (solo acepta conexiones que vengan de la API).</p>
+          <p class="where"><span>Consola</span><span>buscador: EC2</span><span>Network &amp; Security</span><span>Security Groups</span><span>Create security group</span></p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s1-1"><label for="s1-1"><span class="sid">1.1</span><h3>Crea <code>sg-streamhub-api</code></h3></label></div>
+          <div class="tbl"><table class="cfg"><tbody>
+            <tr><th>Security group name</th><td><b>sg-streamhub-api</b></td></tr>
+            <tr><th>Description</th><td><b>API StreamHub</b></td></tr>
+            <tr><th>VPC</th><td>La que aparece por defecto (default)</td></tr>
+            <tr><th>Inbound rule 1</th><td>Type <b>HTTP</b> · Source <b>Anywhere-IPv4</b> (0.0.0.0/0)</td></tr>
+            <tr><th>Inbound rule 2</th><td>Type <b>SSH</b> · Source <b>My IP</b></td></tr>
+            <tr><th>Outbound rules</th><td>Déjalas como están</td></tr>
+          </tbody></table></div>
+          <p>Pulsa <b>Add rule</b> para cada regla de entrada y al final <b>Create security group</b>.</p>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s1-2"><label for="s1-2"><span class="sid">1.2</span><h3>Crea <code>sg-streamhub-db</code></h3></label></div>
+          <div class="tbl"><table class="cfg"><tbody>
+            <tr><th>Security group name</th><td><b>sg-streamhub-db</b></td></tr>
+            <tr><th>Description</th><td><b>Base de datos StreamHub</b></td></tr>
+            <tr><th>VPC</th><td>La misma default</td></tr>
+            <tr><th>Inbound rule</th><td>Type <b>PostgreSQL</b> (puerto 5432) · Source <b>Custom</b> → en el buscador escribe <code>sg-</code> y elige <b>sg-streamhub-api</b></td></tr>
+          </tbody></table></div>
+          <div class="note info"><b>Por qué así</b><p>Al usar el Security Group de la API como origen, solo la instancia EC2 puede hablar con la base de datos. Ni tú ni nadie en internet puede conectarse directo.</p></div>
+          <div class="note see"><b>Deberías ver</b><p>Dos grupos en la lista. En <code>sg-streamhub-db</code>, la regla de entrada muestra como origen un ID que empieza por <code>sg-</code>.</p></div>
+          <span class="shot">06-security-groups.png</span>
+          <details class="trouble"><summary>Si algo falla</summary><dl>
+            <dt>No aparece sg-streamhub-api en el buscador</dt><dd>Ambos grupos deben estar en la misma VPC. Revisa que los dos usen la VPC default.</dd>
+          </dl></details>
+        </section>
+      </section>
+
+      <!-- FASE 2 -->
+      <section class="phase" id="f2" data-title="Base de datos RDS">
+        <header>
+          <p class="eyebrow">Fase 2</p>
+          <h2>Base de datos en Amazon RDS</h2>
+          <p>RDS guardará usuarios, metadatos de videos y comentarios. Tarda unos 10 minutos en crearse; mientras tanto puedes avanzar con la fase 3.</p>
+          <p class="where"><span>Consola</span><span>buscador: RDS</span><span>Databases</span><span>Create database</span></p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s2-1"><label for="s2-1"><span class="sid">2.1</span><h3>Crea la instancia PostgreSQL</h3></label></div>
+          <p>Elige <b>Standard create</b> (te deja controlar cada opción) y completa así. Lo que no aparece en la tabla, déjalo como está.</p>
+          <div class="tbl"><table class="cfg"><tbody>
+            <tr><th>Engine type</th><td><b>PostgreSQL</b> (la versión que venga por defecto sirve)</td></tr>
+            <tr><th>Templates</th><td><b>Free tier</b> si aparece; si no, <b>Sandbox</b> o <b>Dev/Test</b></td></tr>
+            <tr><th>Availability</th><td><b>Single-AZ</b> (una sola instancia)</td></tr>
+            <tr><th>DB instance identifier</th><td><b>streamhub-db</b></td></tr>
+            <tr><th>Master username</th><td><b>streamhub_admin</b></td></tr>
+            <tr><th>Credentials management</th><td><b>Self managed</b>. Escribe una contraseña de 12+ caracteres <b>solo con letras y números</b> y guárdala en un lugar seguro.</td></tr>
+            <tr><th>Instance configuration</th><td>Burstable classes → <b>db.t3.micro</b> (o db.t4g.micro)</td></tr>
+            <tr><th>Storage</th><td><b>gp3</b> o gp2 · <b>20</b> GiB · desmarca <b>Enable storage autoscaling</b></td></tr>
+            <tr><th>Compute resource</th><td><b>Don’t connect to an EC2 compute resource</b></td></tr>
+            <tr><th>VPC / Subnet group</th><td>Default</td></tr>
+            <tr><th>Public access</th><td><b>No</b></td></tr>
+            <tr><th>VPC security group</th><td><b>Choose existing</b> → quita <code>default</code> (✕) y agrega <b>sg-streamhub-db</b></td></tr>
+            <tr><th>Database authentication</th><td><b>Password authentication</b></td></tr>
+            <tr><th>Monitoring</th><td>Desmarca <b>Enhanced Monitoring</b> (y Performance Insights si aparece)</td></tr>
+            <tr><th>Additional configuration → Initial database name</th><td><b>streamhub</b> ⚠ sin esto la base no existe</td></tr>
+            <tr><th>Backup retention</th><td><b>1</b> día</td></tr>
+          </tbody></table></div>
+          <p>Pulsa <b>Create database</b>. Si aparece una ventana de “add-ons” sugeridos, ciérrala.</p>
+          <details class="trouble"><summary>Si algo falla</summary><dl>
+            <dt>Error al crear por Enhanced Monitoring (Learner Lab)</dt><dd>Desmarca Enhanced Monitoring: necesita un rol IAM que el laboratorio no permite crear.</dd>
+            <dt>No aparece db.t3.micro</dt><dd>Cambia el template a Dev/Test o Sandbox y en Instance configuration elige Burstable classes.</dd>
+          </dl></details>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s2-2"><label for="s2-2"><span class="sid">2.2</span><h3>Espera a “Available” y copia el endpoint</h3></label></div>
+          <ol>
+            <li>En <b>Databases</b>, espera a que el estado de <b>streamhub-db</b> diga <b>Available</b>.</li>
+            <li>Haz clic en el nombre → pestaña <b>Connectivity &amp; security</b> → copia el <b>Endpoint</b>.</li>
+            <li>Pégalo en el campo <b>Endpoint de RDS</b> del panel “Tus datos”.</li>
+          </ol>
+          <div class="note see"><b>Deberías ver</b><p class="tpl">Endpoint parecido a <code>{{rds}}</code> · Port <b>5432</b> · Publicly accessible <b>No</b> · VPC security groups <b>sg-streamhub-db</b>.</p></div>
+          <span class="shot">04-rds.png</span>
+        </section>
+      </section>
+
+      <!-- FASE 3 -->
+      <section class="phase" id="f3" data-title="Buckets S3">
+        <header>
+          <p class="eyebrow">Fase 3</p>
+          <h2>Los tres buckets de S3</h2>
+          <p>El nombre de un bucket es único en todo el mundo; por eso cada uno lleva tu sufijo. El bucket del frontend es público (es un sitio web). Los de videos y miniaturas son privados: la API entrega enlaces temporales para verlos.</p>
+          <p class="where"><span>Consola</span><span>buscador: S3</span><span>Buckets</span><span>Create bucket</span></p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s3-1"><label for="s3-1"><span class="sid">3.1</span><h3>Crea el bucket del frontend</h3></label></div>
+          <div class="tbl"><table class="cfg tpl"><tbody>
+            <tr><th>Bucket type</th><td><b>General purpose</b></td></tr>
+            <tr><th>Bucket name</th><td><b>{{frontend}}</b></td></tr>
+            <tr><th>Object Ownership</th><td><b>ACLs disabled</b></td></tr>
+            <tr><th>Block Public Access</th><td><b>Desmarca</b> “Block all public access” y marca la casilla de confirmación de abajo</td></tr>
+            <tr><th>Versioning / Encryption</th><td>Como están (Disable · SSE-S3)</td></tr>
+          </tbody></table></div>
+          <p>Pulsa <b>Create bucket</b>.</p>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s3-2"><label for="s3-2"><span class="sid">3.2</span><h3>Activa el hosting de sitio web estático</h3></label></div>
+          <ol>
+            <li>Abre el bucket <b class="tpl">{{frontend}}</b> → pestaña <b>Properties</b> → baja hasta <b>Static website hosting</b> → <b>Edit</b>.</li>
+            <li><b>Enable</b> · Hosting type <b>Host a static website</b>.</li>
+            <li>Index document: <code>index.html</code> · Error document: <code>index.html</code>.</li>
+            <li><b>Save changes</b>.</li>
+          </ol>
+          <div class="note info"><b>Por qué index.html dos veces</b><p>Así, si alguien recarga <code>/watch/5</code>, S3 devuelve la app y React muestra la página correcta en vez de un error 404.</p></div>
+          <div class="note see"><b>Deberías ver</b><p class="tpl">Al final de Properties, un <b>Bucket website endpoint</b>: <code>{{website}}</code>. Si el tuyo es distinto, usa el de la consola.</p></div>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s3-3"><label for="s3-3"><span class="sid">3.3</span><h3>Permite la lectura pública del frontend</h3></label></div>
+          <p>Pestaña <b>Permissions</b> → <b>Bucket policy</b> → <b>Edit</b> → pega esto → <b>Save changes</b>.</p>
+          <div class="code"><span class="lang">JSON</span><pre class="tpl">{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadForStaticWebsite",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::{{frontend}}/*"
+    }
+  ]
+}</pre></div>
+          <div class="note see"><b>Deberías ver</b><p>En la lista de buckets, una etiqueta roja <b>Publicly accessible</b> solo en este bucket.</p></div>
+          <details class="trouble"><summary>Si algo falla</summary><dl>
+            <dt>“Access denied” al guardar la política</dt><dd>Todavía está activo Block Public Access. Permissions → Block public access → Edit → desmarca “Block all public access” → Save.</dd>
+          </dl></details>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s3-4"><label for="s3-4"><span class="sid">3.4</span><h3>Crea los buckets privados de videos y miniaturas</h3></label></div>
+          <p class="tpl">Crea dos buckets más, <b>sin tocar</b> Block Public Access (debe quedar <b>activado</b>):</p>
+          <ul class="tpl">
+            <li><b>{{videos}}</b> — archivos MP4 (máx. 100 MB).</li>
+            <li><b>{{thumbs}}</b> — miniaturas JPG, JPEG o PNG.</li>
+          </ul>
+          <p>Opcional recomendado, en cada uno: <b>Management</b> → <b>Create lifecycle rule</b> → nombre <code>limpiar-subidas</code> → “Apply to all objects” (confirma) → marca <b>Delete expired object delete markers or incomplete multipart uploads</b> → <b>Delete incomplete multipart uploads</b> = 1 día → Create.</p>
+          <div class="note see"><b>Deberías ver</b><p>Tres buckets en la lista. Solo el del frontend dice “Publicly accessible”.</p></div>
+          <span class="shot">07-s3-buckets.png</span>
+        </section>
+      </section>
+
+      <!-- FASE 4 -->
+      <section class="phase" id="f4" data-title="Permisos IAM">
+        <header>
+          <p class="eyebrow">Fase 4</p>
+          <h2>Permisos con un IAM Role</h2>
+          <p>La API necesita subir y borrar archivos en S3. En lugar de poner claves en el código, la instancia EC2 recibe un <b>rol</b> y AWS le entrega credenciales temporales automáticamente.</p>
+        </header>
+
+        <section class="step only-lab">
+          <div class="step-head"><input type="checkbox" id="s4-0l"><label for="s4-0l"><span class="sid">4.1</span><h3>Learner Lab: usa LabInstanceProfile</h3></label></div>
+          <p>No hay nada que crear. En el paso 5.1 elegirás <b>LabInstanceProfile</b> como IAM instance profile. Ese rol ya tiene permiso para usar S3.</p>
+          <div class="note info"><b>Para tu informe</b><p>Explica que en un entorno real crearías una política de mínimo privilegio (la tienes en <code>infra/aws/iam-ec2-s3-policy.json</code>) y que el laboratorio no permite crear roles.</p></div>
+        </section>
+
+        <section class="step only-personal">
+          <div class="step-head"><input type="checkbox" id="s4-1"><label for="s4-1"><span class="sid">4.1</span><h3>Crea la política de permisos</h3></label></div>
+          <p class="where"><span>Consola</span><span>buscador: IAM</span><span>Policies</span><span>Create policy</span><span>pestaña JSON</span></p>
+          <p>Borra lo que haya en el editor y pega:</p>
+          <div class="code"><span class="lang">JSON</span><pre class="tpl">{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StreamHubMediaObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::{{videos}}/*",
+        "arn:aws:s3:::{{thumbs}}/*"
+      ]
+    }
+  ]
+}</pre></div>
+          <p><b>Next</b> → Policy name <code>StreamHubS3MediaAccess</code> → <b>Create policy</b>.</p>
+          <div class="note info"><b>Mínimo privilegio</b><p>La API solo puede subir, leer y borrar objetos en esos dos buckets. No puede tocar el frontend ni ningún otro servicio.</p></div>
+        </section>
+
+        <section class="step only-personal">
+          <div class="step-head"><input type="checkbox" id="s4-2"><label for="s4-2"><span class="sid">4.2</span><h3>Crea el rol para EC2</h3></label></div>
+          <ol>
+            <li>IAM → <b>Roles</b> → <b>Create role</b>.</li>
+            <li>Trusted entity type <b>AWS service</b> · Use case <b>EC2</b> → <b>Next</b>.</li>
+            <li>Busca <code>StreamHubS3MediaAccess</code>, márcala → <b>Next</b>.</li>
+            <li>Role name <code>StreamHubEC2Role</code> → <b>Create role</b>.</li>
+          </ol>
+          <span class="shot">03-iam-role.png</span>
+        </section>
+      </section>
+
+      <!-- FASE 5 -->
+      <section class="phase" id="f5" data-title="Servidor EC2">
+        <header>
+          <p class="eyebrow">Fase 5</p>
+          <h2>Servidor EC2 para la API</h2>
+          <p class="where"><span>Consola</span><span>buscador: EC2</span><span>Instances</span><span>Launch instances</span></p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s5-1"><label for="s5-1"><span class="sid">5.1</span><h3>Lanza la instancia</h3></label></div>
+          <div class="tbl"><table class="cfg"><tbody>
+            <tr><th>Name</th><td><b>streamhub-api</b></td></tr>
+            <tr><th>AMI</th><td><b>Amazon Linux 2023</b> (Free tier eligible) · 64-bit (x86)</td></tr>
+            <tr><th>Instance type</th><td><b>t3.micro</b> (o t2.micro)</td></tr>
+            <tr class="only-personal"><th>Key pair</th><td><b>Create new key pair</b> → nombre <code>streamhub-key</code> · RSA · <code>.pem</code> → se descarga solo. Guárdalo en Descargas.</td></tr>
+            <tr class="only-lab"><th>Key pair</th><td><b>vockey</b></td></tr>
+            <tr><th>Network settings → Edit</th><td>VPC default · Auto-assign public IP <b>Enable</b></td></tr>
+            <tr><th>Firewall</th><td><b>Select existing security group</b> → <b>sg-streamhub-api</b></td></tr>
+            <tr><th>Storage</th><td><b>16</b> GiB gp3</td></tr>
+            <tr><th>Advanced details → IAM instance profile</th><td class="tpl"><b>{{profile}}</b></td></tr>
+          </tbody></table></div>
+          <p>Pulsa <b>Launch instance</b> y luego <b>View all instances</b>. Espera a que diga <b>Running</b> y “2/2 checks passed”.</p>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s5-2"><label for="s5-2"><span class="sid">5.2</span><h3>Asigna una IP elástica (fija)</h3></label></div>
+          <ol>
+            <li>EC2 → <b>Network &amp; Security</b> → <b>Elastic IPs</b> → <b>Allocate Elastic IP address</b> → <b>Allocate</b>.</li>
+            <li>Selecciona la IP nueva → <b>Actions</b> → <b>Associate Elastic IP address</b>.</li>
+            <li>Resource type <b>Instance</b> → elige <b>streamhub-api</b> → <b>Associate</b>.</li>
+            <li>Copia la IP y pégala en el campo <b>IP elástica de EC2</b> de arriba.</li>
+          </ol>
+          <div class="note info"><b>Por qué</b><p>Sin IP elástica, la IP pública cambia cada vez que la instancia se detiene, y tendrías que recompilar el frontend.</p></div>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s5-3"><label for="s5-3"><span class="sid">5.3</span><h3>Conéctate por SSH desde tu computadora</h3></label></div>
+          <p><b>Windows:</b> abre <b>PowerShell</b> (tecla Windows → escribe PowerShell). La primera vez, protege la llave:</p>
+          <div class="code"><span class="lang">PowerShell</span><pre class="tpl">cd $HOME\Downloads
+icacls.exe {{keyfile}} /reset
+icacls.exe {{keyfile}} /grant:r "$($env:USERNAME):(R)"
+icacls.exe {{keyfile}} /inheritance:r
+ssh -i {{keyfile}} ec2-user@{{eip}}</pre></div>
+          <p><b>macOS / Linux:</b></p>
+          <div class="code"><span class="lang">Bash</span><pre class="tpl">cd ~/Downloads
+chmod 400 {{keyfile}}
+ssh -i {{keyfile}} ec2-user@{{eip}}</pre></div>
+          <p>Si pregunta <i>Are you sure you want to continue connecting?</i> escribe <code>yes</code> y <kbd>Enter</kbd>.</p>
+          <div class="note see"><b>Deberías ver</b><p>Un logo de Amazon Linux y el prompt <code>[ec2-user@ip-… ~]$</code>. Desde aquí, todos los comandos se escriben en esa ventana.</p></div>
+          <details class="trouble"><summary>Si algo falla</summary><dl>
+            <dt>Connection timed out</dt><dd>Tu IP cambió (por ejemplo, otra red Wi-Fi). Edita sg-streamhub-api → regla SSH → Source “My IP” de nuevo.</dd>
+            <dt>UNPROTECTED PRIVATE KEY FILE / Permission denied (publickey)</dt><dd>Repite los comandos icacls/chmod y revisa que el usuario sea <code>ec2-user</code> y el archivo .pem el correcto.</dd>
+          </dl></details>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s5-4"><label for="s5-4"><span class="sid">5.4</span><h3>Comprueba que la instancia tiene el rol</h3></label></div>
+          <div class="code"><span class="lang">EC2</span><pre>aws sts get-caller-identity</pre></div>
+          <div class="note see"><b>Deberías ver</b><p class="tpl">Un JSON cuyo <code>"Arn"</code> contiene <code>assumed-role/{{role}}/</code>. Eso prueba que no hay claves guardadas: las credenciales vienen del rol.</p></div>
+          <details class="trouble"><summary>Si algo falla</summary><dl>
+            <dt>Unable to locate credentials</dt><dd>La instancia no tiene rol. EC2 → selecciona streamhub-api → Actions → Security → <b>Modify IAM role</b> → elige el rol → Update.</dd>
+          </dl></details>
+        </section>
+      </section>
+
+      <!-- FASE 6 -->
+      <section class="phase" id="f6" data-title="Instalar la API">
+        <header>
+          <p class="eyebrow">Fase 6</p>
+          <h2>Instalar la API en EC2</h2>
+          <p>Un script instala Python, Nginx y la API como servicio, crea las tablas en RDS y prueba la conexión con S3. Todo esto se ejecuta dentro de la sesión SSH.</p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s6-1"><label for="s6-1"><span class="sid">6.1</span><h3>Descarga el código y ejecuta el instalador (1.ª vez)</h3></label></div>
+          <div class="code"><span class="lang">EC2</span><pre class="tpl">sudo dnf install -y git
+git clone {{repo}}.git /tmp/streamhub
+sudo REPO_URL={{repo}}.git bash /tmp/streamhub/backend/deploy/setup_ec2.sh</pre></div>
+          <div class="note see"><b>Deberías ver</b><p>Al final: <code>!! /etc/streamhub/api.env todavía tiene valores de ejemplo</code>. Es normal: el script se detiene para que completes la configuración. Ya generó una clave JWT aleatoria por ti.</p></div>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s6-2"><label for="s6-2"><span class="sid">6.2</span><h3>Completa las variables de entorno</h3></label></div>
+          <p>Este comando escribe tus datos en <code>/etc/streamhub/api.env</code>. Copia y pega tal cual:</p>
+          <div class="code"><span class="lang">EC2</span><pre class="tpl">sudo sed -i \
+  -e "s|^ENVIRONMENT=.*|ENVIRONMENT=production|" \
+  -e "s|^CORS_ORIGINS=.*|CORS_ORIGINS={{website}}|" \
+  -e "s|^DB_HOST=.*|DB_HOST={{rds}}|" \
+  -e "s|^DB_USER=.*|DB_USER=streamhub_admin|" \
+  -e "s|^DB_SSLMODE=.*|DB_SSLMODE=require|" \
+  -e "s|^AWS_REGION=.*|AWS_REGION={{region}}|" \
+  -e "s|^S3_VIDEOS_BUCKET=.*|S3_VIDEOS_BUCKET={{videos}}|" \
+  -e "s|^S3_THUMBNAILS_BUCKET=.*|S3_THUMBNAILS_BUCKET={{thumbs}}|" \
+  /etc/streamhub/api.env</pre></div>
+          <p>Ahora la contraseña de RDS. Escribe este comando <b>a mano</b> reemplazando <code>TuClaveDeRDS</code> por la tuya (así no queda guardada en ningún sitio web):</p>
+          <div class="code"><span class="lang">EC2</span><pre>sudo sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=TuClaveDeRDS|" /etc/streamhub/api.env</pre></div>
+          <p>Revisa el resultado:</p>
+          <div class="code"><span class="lang">EC2</span><pre>sudo grep -v '^#' /etc/streamhub/api.env | grep .</pre></div>
+          <div class="note see"><b>Deberías ver</b><p class="tpl">Tus valores reales en <code>CORS_ORIGINS</code>, <code>DB_HOST</code> y los buckets, <code>JWT_SECRET_KEY</code> con una cadena larga y ninguna línea <code>AWS_ACCESS_KEY_ID</code>.</p></div>
+          <div class="note info"><b>Alternativa con editor</b><p><code>sudo nano /etc/streamhub/api.env</code> · muévete con las flechas · guarda con <kbd>Ctrl</kbd>+<kbd>O</kbd> y <kbd>Enter</kbd> · sal con <kbd>Ctrl</kbd>+<kbd>X</kbd>.</p></div>
+          <div class="note warn"><b>Ojo con CORS</b><p><code>CORS_ORIGINS</code> debe ser exactamente la URL del sitio: con <code>http://</code> y sin <code>/</code> al final. Si no coincide, el navegador bloquea las llamadas a la API.</p></div>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s6-3"><label for="s6-3"><span class="sid">6.3</span><h3>Ejecuta el instalador otra vez</h3></label></div>
+          <div class="code"><span class="lang">EC2</span><pre class="tpl">sudo REPO_URL={{repo}}.git bash /tmp/streamhub/backend/deploy/setup_ec2.sh</pre></div>
+          <p>Tarda 1–3 minutos. Al final corre el diagnóstico de conexión.</p>
+          <div class="note see"><b>Deberías ver</b><p>Cuatro marcas ✔: <b>Credenciales AWS (IAM Role)</b>, <b>Conexión a RDS</b>, <b>S3 videos</b> y <b>S3 miniaturas</b>, luego <code>✅ Todo conectado correctamente.</code> y <code class="tpl">Listo. Documentación: http://{{eip}}/docs</code>.</p></div>
+          <span class="shot">03-diagnostico.png</span>
+          <details class="trouble"><summary>Si algo falla (lee la línea “→ Revisa” del diagnóstico)</summary><dl>
+            <dt>✘ Conexión a RDS · timeout</dt><dd>La regla 5432 de sg-streamhub-db debe tener como origen sg-streamhub-api, y RDS debe usar sg-streamhub-db.</dd>
+            <dt>✘ Conexión a RDS · database "streamhub" does not exist</dt><dd class="tpl">Olvidaste Initial database name. Créala: <code>sudo dnf install -y postgresql15</code> y <code>psql "host={{rds}} user=streamhub_admin dbname=postgres sslmode=require" -c "CREATE DATABASE streamhub;"</code></dd>
+            <dt>✘ Conexión a RDS · password authentication failed</dt><dd>Repite el comando de DB_PASSWORD del paso 6.2.</dd>
+            <dt>✘ S3 · AccessDenied</dt><dd>Revisa el rol de la instancia (paso 5.4) y que los nombres de bucket en la política coincidan.</dd>
+            <dt>✘ S3 · NoSuchBucket</dt><dd>El nombre en api.env no coincide con el bucket creado. Compara con la consola de S3.</dd>
+            <dt>Ver los registros de la API</dt><dd><code>sudo journalctl -u streamhub-api -n 50 --no-pager</code></dd>
+          </dl></details>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s6-4"><label for="s6-4"><span class="sid">6.4</span><h3>Abre la documentación de la API</h3></label></div>
+          <p class="tpl">En tu navegador abre <a href="http://{{eip}}/docs" target="_blank" rel="noopener">http://{{eip}}/docs</a>. También prueba <code>http://{{eip}}/health</code>.</p>
+          <div class="note see"><b>Deberías ver</b><p>Swagger con las secciones Autenticación, Usuarios, Videos, Comentarios y Sistema. <code>/health</code> responde <code>{"status":"ok","database":"ok"}</code>.</p></div>
+          <span class="shot">11-docs.png</span>
+          <span class="shot">01-ec2.png</span>
+        </section>
+      </section>
+
+      <!-- FASE 7 -->
+      <section class="phase" id="f7" data-title="Publicar el frontend">
+        <header>
+          <p class="eyebrow">Fase 7</p>
+          <h2>Compilar y publicar el frontend</h2>
+          <p>Esto se hace en <b>tu computadora</b> (necesitas Node.js 20 o superior). La dirección de la API se incrusta al compilar, por eso primero la configuras.</p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s7-1"><label for="s7-1"><span class="sid">7.1</span><h3>Compila con la URL de tu API</h3></label></div>
+          <p>Abre una terminal <b>nueva</b> en tu PC (no la de SSH), dentro de la carpeta <code>streamhub\frontend</code>:</p>
+          <div class="code"><span class="lang">PowerShell</span><pre class="tpl">"VITE_API_URL=http://{{eip}}" | Out-File -Encoding ascii .env.production.local
+npm install
+npm run build</pre></div>
+          <div class="code"><span class="lang">macOS / Linux</span><pre class="tpl">echo "VITE_API_URL=http://{{eip}}" &gt; .env.production.local
+npm install
+npm run build</pre></div>
+          <div class="note see"><b>Deberías ver</b><p><code>✓ built in …</code> y una carpeta nueva <code>dist/</code> con <code>index.html</code>, <code>favicon.svg</code> y <code>assets/</code>.</p></div>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s7-2"><label for="s7-2"><span class="sid">7.2</span><h3>Sube solo el contenido de dist/</h3></label></div>
+          <ol>
+            <li class="tpl">S3 → bucket <b>{{frontend}}</b> → <b>Upload</b>.</li>
+            <li><b>Add files</b> → elige <code>index.html</code> y <code>favicon.svg</code> de dentro de <code>dist</code>.</li>
+            <li><b>Add folder</b> → elige la carpeta <code>assets</code> de dentro de <code>dist</code>.</li>
+            <li><b>Upload</b> → <b>Close</b>.</li>
+          </ol>
+          <div class="note warn"><b>No subas</b><p>La carpeta <code>dist</code> en sí, ni <code>src/</code>, <code>node_modules/</code> o <code>package.json</code>. En la raíz del bucket deben quedar exactamente <code>index.html</code>, <code>favicon.svg</code> y <code>assets/</code>.</p></div>
+          <span class="shot">08-s3-frontend.png</span>
+        </section>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s7-3"><label for="s7-3"><span class="sid">7.3</span><h3>Abre tu SPA</h3></label></div>
+          <p class="tpl">Abre <a href="{{website}}" target="_blank" rel="noopener">{{website}}</a>.</p>
+          <details class="trouble"><summary>Si algo falla</summary><dl>
+            <dt>403 Forbidden</dt><dd>Falta la bucket policy (paso 3.3) o subiste la carpeta dist completa en vez de su contenido.</dd>
+            <dt>La página carga pero dice “No se pudo conectar con la API”</dt><dd>Abre DevTools (<kbd>F12</kbd>) → Console. Si dice <i>CORS</i>, corrige CORS_ORIGINS (6.2) y ejecuta <code>sudo systemctl restart streamhub-api</code>. Si llama a <code>localhost:8000</code>, repite 7.1.</dd>
+          </dl></details>
+        </section>
+      </section>
+
+      <!-- FASE 8 -->
+      <section class="phase" id="f8" data-title="Probar y capturar">
+        <header>
+          <p class="eyebrow">Fase 8</p>
+          <h2>Probar todo y tomar las evidencias</h2>
+          <p>Cada paso cubre un punto de la entrega. Toma la captura indicada en cada uno; el detalle completo está en <code>docs/EVIDENCIAS.md</code>.</p>
+        </header>
+
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s8-1"><label for="s8-1"><span class="sid">8.1</span><h3>Registro e inicio de sesión</h3></label></div>
+          <p>Pestaña <b>Registrarse</b> → nombre, correo y contraseña (8+ caracteres). Luego <b>Salir</b> y entra de nuevo con <b>Iniciar sesión</b>.</p>
+          <span class="shot">12-registro.png</span> <span class="shot">13-login.png</span>
+        </section>
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s8-2"><label for="s8-2"><span class="sid">8.2</span><h3>Publicación de videos</h3></label></div>
+          <p><b>+ Publicar</b> → título, descripción, un MP4 (menos de 100 MB) y una miniatura JPG o PNG → <b>Publicar video</b>. Sube al menos 3 para que haya recomendados.</p>
+          <p class="tpl">Después revisa en S3 que aparecieron archivos en <b>{{videos}}</b> → <code>videos/1/</code> y en <b>{{thumbs}}</b> → <code>thumbnails/1/</code>.</p>
+          <span class="shot">19-publicacion.png</span> <span class="shot">09-s3-videos.png</span> <span class="shot">10-s3-miniaturas.png</span>
+        </section>
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s8-3"><label for="s8-3"><span class="sid">8.3</span><h3>Catálogo, reproducción, comentarios y recomendados</h3></label></div>
+          <ol>
+            <li>Página principal: cada tarjeta muestra miniatura, título, usuario, vistas y fecha.</li>
+            <li>Abre un video, dale play y adelántalo. El contador de vistas sube.</li>
+            <li>Escribe un comentario.</li>
+            <li>A la derecha (abajo en el celular) están los recomendados; haz clic en uno.</li>
+            <li>Con <kbd>F12</kbd> → Network, muestra las llamadas a <code class="tpl">http://{{eip}}/videos</code> con estado 200.</li>
+          </ol>
+          <span class="shot">14-catalogo.png</span> <span class="shot">15-reproduccion.png</span> <span class="shot">16-comentarios.png</span> <span class="shot">17-recomendados.png</span> <span class="shot">22-network.png</span>
+        </section>
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s8-4"><label for="s8-4"><span class="sid">8.4</span><h3>Perfil: consultar, editar y eliminar</h3></label></div>
+          <p>En tu perfil verifica nombre, correo, cantidad de videos y la lista. <b>Editar</b> un título o miniatura; <b>Eliminar</b> otro y comprueba en S3 que su archivo desapareció.</p>
+          <span class="shot">18-perfil.png</span> <span class="shot">20-editar.png</span> <span class="shot">21-eliminar.png</span>
+        </section>
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s8-5"><label for="s8-5"><span class="sid">8.5</span><h3>Evidencia de los datos en RDS</h3></label></div>
+          <p>En la sesión SSH:</p>
+          <div class="code"><span class="lang">EC2</span><pre class="tpl">sudo dnf install -y postgresql15
+psql "host={{rds}} user=streamhub_admin dbname=streamhub sslmode=require" \
+  -c '\dt' -c 'SELECT id, title, views, user_id FROM videos;'</pre></div>
+          <p>Te pedirá la contraseña de RDS (al escribirla no se ve nada; es normal).</p>
+          <span class="shot">05-rds-tablas.png</span>
+        </section>
+      </section>
+
+      <!-- FASE 9 -->
+      <section class="phase" id="f9" data-title="Mantener y limpiar">
+        <header>
+          <p class="eyebrow">Fase 9</p>
+          <h2>Actualizar y, al final, limpiar</h2>
+        </header>
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s9-1"><label for="s9-1"><span class="sid">9.1</span><h3>Cómo actualizar después de un cambio</h3></label></div>
+          <ul>
+            <li><b>Backend:</b> haz <code>git push</code> y en EC2 ejecuta:</li>
+          </ul>
+          <div class="code"><span class="lang">EC2</span><pre class="tpl">sudo REPO_URL={{repo}}.git bash /opt/streamhub/backend/deploy/setup_ec2.sh</pre></div>
+          <ul>
+            <li><b>Frontend:</b> repite 7.1 y 7.2 (borra antes los archivos viejos de <code>assets/</code> en el bucket).</li>
+          </ul>
+          <p class="only-lab">Cada vez que vuelvas a abrir el laboratorio, revisa que <b>streamhub-api</b> esté <b>Running</b> y <b>streamhub-db</b> <b>Available</b> antes de probar.</p>
+        </section>
+        <section class="step">
+          <div class="step-head"><input type="checkbox" id="s9-2"><label for="s9-2"><span class="sid">9.2</span><h3>Limpia todo cuando te califiquen</h3></label></div>
+          <ol>
+            <li>EC2 → Instances → streamhub-api → <b>Instance state → Terminate</b>.</li>
+            <li>Elastic IPs → <b>Release</b> la IP (cobra si queda libre).</li>
+            <li>RDS → streamhub-db → <b>Actions → Delete</b> (sin snapshot final).</li>
+            <li>S3 → cada bucket → <b>Empty</b> y luego <b>Delete</b>.</li>
+          </ol>
+        </section>
+      </section>
+    </article>
+  </div>
+
+  <!-- ===================== CUMPLIMIENTO ===================== -->
+  <div id="panel-req" role="tabpanel" aria-labelledby="tab-req" class="req" hidden>
+    <p class="legend"><span class="pill ok">HECHO</span> implementado y probado en local · <span class="pill aws">EN AWS</span> se completa siguiendo la guía</p>
+
+    <section aria-labelledby="r1">
+      <h2 id="r1">1. SPA en React (solo 4 páginas)</h2>
+      <div class="tbl"><table class="matrix">
+        <thead><tr><th>Requisito</th><th>Estado</th><th>Dónde está</th></tr></thead>
+        <tbody>
+          <tr><td>React + Vite</td><td><span class="pill ok">HECHO</span></td><td><code>frontend/</code> (React 19 + Vite + TypeScript)</td></tr>
+          <tr><td>Únicamente 4 páginas</td><td><span class="pill ok">HECHO</span></td><td><code>App.tsx</code>: <code>/login</code>, <code>/</code>, <code>/watch/:id</code>, <code>/profile</code>; cualquier otra ruta vuelve a <code>/</code></td></tr>
+          <tr><td>P1 · Crear cuenta e iniciar sesión (nombre, correo, contraseña)</td><td><span class="pill ok">HECHO</span></td><td><code>AuthPage.tsx</code> → <code>POST /users</code>, <code>POST /login</code></td></tr>
+          <tr><td>P2 · Videos dinámicos: miniatura, título, usuario, vistas, fecha</td><td><span class="pill ok">HECHO</span></td><td><code>HomePage.tsx</code> + <code>VideoCard.tsx</code> → <code>GET /videos</code></td></tr>
+          <tr><td>P3 · Video, título, descripción, usuario, vistas</td><td><span class="pill ok">HECHO</span></td><td><code>PlayerPage.tsx</code> → <code>GET /videos/{id}</code></td></tr>
+          <tr><td>P3 · Comentarios</td><td><span class="pill ok">HECHO</span></td><td><code>GET</code> y <code>POST /videos/{id}/comments</code></td></tr>
+          <tr><td>P3 · Recomendados cargados desde la API</td><td><span class="pill ok">HECHO</span></td><td><code>GET /videos/{id}/recommended</code></td></tr>
+          <tr><td>P4 · Info del usuario, cantidad y lista de videos</td><td><span class="pill ok">HECHO</span></td><td><code>ProfilePage.tsx</code> → <code>GET /users/me</code>, <code>GET /videos?user_id=</code></td></tr>
+          <tr><td>P4 · Publicar, consultar, actualizar y eliminar</td><td><span class="pill ok">HECHO</span></td><td>Formulario de subida, “Mis videos”, <code>PUT</code> y <code>DELETE /videos/{id}</code></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section aria-labelledby="r2">
+      <h2 id="r2">2. Amazon S3</h2>
+      <div class="tbl"><table class="matrix">
+        <thead><tr><th>Requisito</th><th>Estado</th><th>Dónde está</th></tr></thead>
+        <tbody>
+          <tr><td>Bucket Frontend solo con el contenido de <code>dist/</code></td><td><span class="pill aws">EN AWS</span></td><td>Pasos 3.1–3.3 y 7.2</td></tr>
+          <tr><td>Bucket Videos: MP4, máx. 100 MB</td><td><span class="pill ok">HECHO</span> <span class="pill aws">EN AWS</span></td><td>Validación por extensión, contenido real y tamaño en <code>services/storage.py</code>; Nginx limita a 110 MB</td></tr>
+          <tr><td>Bucket Miniaturas: JPG, JPEG, PNG</td><td><span class="pill ok">HECHO</span> <span class="pill aws">EN AWS</span></td><td>Misma validación en API y navegador</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section aria-labelledby="r3">
+      <h2 id="r3">3. API FastAPI en EC2</h2>
+      <div class="tbl"><table class="matrix">
+        <thead><tr><th>Endpoint</th><th>Estado</th></tr></thead>
+        <tbody>
+          <tr><td><code>POST /users</code> · <code>POST /login</code> · <code>GET /users/{id}</code></td><td><span class="pill ok">HECHO</span></td></tr>
+          <tr><td><code>POST</code> · <code>GET /videos</code> · <code>GET</code> · <code>PUT</code> · <code>DELETE /videos/{id}</code></td><td><span class="pill ok">HECHO</span></td></tr>
+          <tr><td><code>POST</code> · <code>GET /videos/{id}/comments</code></td><td><span class="pill ok">HECHO</span></td></tr>
+          <tr><td>Documentación en <code>/docs</code></td><td><span class="pill ok">HECHO</span></td></tr>
+          <tr><td>Desplegada en EC2</td><td><span class="pill aws">EN AWS</span> fases 5 y 6</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section aria-labelledby="r4">
+      <h2 id="r4">4. Base de datos en RDS</h2>
+      <div class="tbl"><table class="matrix">
+        <thead><tr><th>Entidad</th><th>Estado</th><th>Campos</th></tr></thead>
+        <tbody>
+          <tr><td>Usuario</td><td><span class="pill ok">HECHO</span></td><td>id, name, email, password_hash (+ created_at)</td></tr>
+          <tr><td>Video</td><td><span class="pill ok">HECHO</span></td><td>id, title, description, video_url, thumbnail_url, views, user_id (+ keys de S3 y fechas)</td></tr>
+          <tr><td>Comentario</td><td><span class="pill ok">HECHO</span></td><td>id, content, user_id, video_id, created_at</td></tr>
+          <tr><td>RDS solo con datos estructurados; archivos en S3</td><td><span class="pill ok">HECHO</span></td><td>RDS guarda URLs y claves; los MP4 e imágenes van a S3</td></tr>
+          <tr><td>PostgreSQL en RDS</td><td><span class="pill aws">EN AWS</span></td><td>Fase 2; tablas creadas por la migración en 6.3</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section aria-labelledby="r5">
+      <h2 id="r5">5. Conexión entre servicios</h2>
+      <div class="tbl"><table class="matrix">
+        <thead><tr><th>Mecanismo</th><th>Estado</th><th>Cómo</th></tr></thead>
+        <tbody>
+          <tr><td>Variables de entorno</td><td><span class="pill ok">HECHO</span></td><td>API lee <code>/etc/streamhub/api.env</code> (paso 6.2); el frontend usa <code>VITE_API_URL</code> (7.1)</td></tr>
+          <tr><td>IAM Roles</td><td><span class="pill ok">HECHO</span> <span class="pill aws">EN AWS</span></td><td>boto3 usa el rol de la instancia; política de mínimo privilegio (fase 4); comprobado en 5.4 y 6.3</td></tr>
+          <tr><td>Security Groups</td><td><span class="pill aws">EN AWS</span></td><td>Fase 1: 80 y 22 a la API; 5432 solo desde la API</td></tr>
+          <tr><td>Sin credenciales en el código</td><td><span class="pill ok">HECHO</span></td><td><code>.env</code> en <code>.gitignore</code>; el diagnóstico avisa si no se usa un IAM Role</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section aria-labelledby="r6">
+      <h2 id="r6">6. Entrega</h2>
+      <div class="tbl"><table class="matrix">
+        <thead><tr><th>Entregable</th><th>Dónde se obtiene</th></tr></thead>
+        <tbody>
+          <tr><td>Repositorio GitHub</td><td>Paso 0.2</td></tr>
+          <tr><td>URL pública de la SPA</td><td class="tpl">Paso 7.3 · {{website}}</td></tr>
+          <tr><td>URL pública de <code>/docs</code></td><td class="tpl">Paso 6.4 · http://{{eip}}/docs</td></tr>
+          <tr><td>Evidencia de EC2, RDS y 3 buckets</td><td>Capturas 01, 04, 05, 07–10 (pasos 2.2, 3.4, 6.4, 8.2, 8.5)</td></tr>
+          <tr><td>Registro, login, catálogo, reproducción, comentarios, recomendados, perfil, publicación</td><td>Fase 8</td></tr>
+          <tr><td>Video explicativo</td><td><code>docs/GUION_VIDEO.md</code></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  const KEY = 'streamhub-guide-v1';
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+  const save = (s) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* sin almacenamiento */ } };
+  const state = Object.assign({ vars: {}, done: {}, acct: 'personal', tab: 'guia' }, load());
+  const root = document.documentElement;
+
+  // ---------- Variables ----------
+  const inputs = [...document.querySelectorAll('[data-var]')];
+  inputs.forEach((i) => { if (state.vars[i.dataset.var]) i.value = state.vars[i.dataset.var]; });
+  const tpls = [...document.querySelectorAll('.tpl')].map((el) => ({ el, html: el.innerHTML }));
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function values() {
+    const v = Object.fromEntries(inputs.map((i) => [i.dataset.var, i.value.trim() || i.defaultValue]));
+    v.repo = v.repo.replace(/\.git$/, '').replace(/\/$/, '');
+    v.frontend = `streamhub-frontend-${v.suffix}`;
+    v.videos = `streamhub-videos-${v.suffix}`;
+    v.thumbs = `streamhub-thumbnails-${v.suffix}`;
+    v.website = `http://${v.frontend}.s3-website-${v.region}.amazonaws.com`;
+    const lab = state.acct === 'lab';
+    v.profile = lab ? 'LabInstanceProfile' : 'StreamHubEC2Role';
+    v.role = lab ? 'LabRole' : 'StreamHubEC2Role';
+    return v;
+  }
+
+  function render() {
+    const v = values();
+    tpls.forEach(({ el, html }) => {
+      el.innerHTML = html.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in v ? `<mark class="var">${esc(v[k])}</mark>` : _))
+        // los href no deben llevar <mark>
+        .replace(/href="([^"]*)"/g, (m, h) => `href="${h.replace(/<\/?mark[^>]*>/g, '')}"`);
+    });
+    const msg = document.getElementById('suffix-msg');
+    const okSuffix = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(v.suffix) && v.thumbs.length <= 63;
+    msg.textContent = okSuffix ? 'Minúsculas, números y guiones. Ej.: tu nombre + año.' : 'Solo minúsculas, números y guiones (sin espacios ni tildes, sin guion al inicio o final).';
+    msg.className = okSuffix ? '' : 'err';
+    addCopyButtons();
+  }
+
+  inputs.forEach((i) => i.addEventListener('input', () => {
+    state.vars[i.dataset.var] = i.value.trim();
+    save(state);
+    render();
+  }));
+
+  // ---------- Botones de copiar ----------
+  function addCopyButtons() {
+    document.querySelectorAll('.code').forEach((box) => {
+      if (box.querySelector('.copy')) return;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'copy'; b.textContent = 'Copiar';
+      b.addEventListener('click', () => {
+        const pre = box.querySelector('pre');
+        const text = pre.textContent;
+        const done = () => { b.textContent = 'Copiado'; setTimeout(() => (b.textContent = 'Copiar'), 1500); };
+        const fallback = () => {
+          const r = document.createRange(); r.selectNodeContents(pre);
+          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+          b.textContent = 'Texto seleccionado: Ctrl+C';
+        };
+        try { navigator.clipboard.writeText(text).then(done, fallback); } catch { fallback(); }
+      });
+      box.appendChild(b);
+    });
+  }
+
+  // ---------- Tipo de cuenta ----------
+  const radios = document.querySelectorAll('input[name="acct"]');
+  function applyAcct() {
+    root.classList.toggle('lab', state.acct === 'lab');
+    radios.forEach((r) => (r.checked = r.value === state.acct));
+    if (state.acct === 'lab' && (!state.vars.keyfile)) document.getElementById('v-key').value = 'labsuser.pem';
+    if (state.acct !== 'lab' && (!state.vars.keyfile)) document.getElementById('v-key').value = 'streamhub-key.pem';
+  }
+  radios.forEach((r) => r.addEventListener('change', () => { state.acct = r.value; save(state); applyAcct(); render(); progress(); }));
+
+  // ---------- Progreso ----------
+  const steps = [...document.querySelectorAll('.step')];
+  const visible = (el) => !el.closest(state.acct === 'lab' ? '.only-personal' : '.only-lab');
+  steps.forEach((st) => {
+    const cb = st.querySelector('input[type=checkbox]');
+    cb.checked = !!state.done[cb.id];
+    cb.addEventListener('change', () => { state.done[cb.id] = cb.checked; save(state); progress(); });
+  });
+
+  const phases = [...document.querySelectorAll('.phase')];
+  const nav = document.getElementById('phase-nav');
+  phases.forEach((ph, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<a href="#${ph.id}"><span class="n"><span>${String(i).padStart(2, '0')}</span></span><span>${ph.dataset.title}</span><span class="c"></span></a>`;
+    nav.appendChild(li);
+  });
+
+  function progress() {
+    let total = 0, done = 0;
+    phases.forEach((ph, i) => {
+      const own = [...ph.querySelectorAll('.step')].filter(visible);
+      const d = own.filter((s) => s.querySelector('input').checked).length;
+      total += own.length; done += d;
+      const a = nav.children[i].firstChild;
+      a.querySelector('.c').textContent = `${d}/${own.length}`;
+      a.classList.toggle('done', own.length > 0 && d === own.length);
+    });
+    steps.forEach((s) => s.classList.toggle('is-done', s.querySelector('input').checked));
+    document.getElementById('count').textContent = `${done} / ${total}`;
+    const bar = document.getElementById('bar'); bar.max = total || 1; bar.value = done;
+  }
+
+  // ---------- Reinicio con confirmación en la página ----------
+  const confirmBox = document.getElementById('reset-confirm');
+  document.getElementById('reset').addEventListener('click', () => (confirmBox.hidden = false));
+  document.getElementById('reset-no').addEventListener('click', () => (confirmBox.hidden = true));
+  document.getElementById('reset-yes').addEventListener('click', () => {
+    state.done = {}; save(state);
+    steps.forEach((s) => (s.querySelector('input').checked = false));
+    confirmBox.hidden = true; progress();
+  });
+
+  // ---------- Pestañas ----------
+  const tabs = { guia: ['tab-guia', 'panel-guia'], req: ['tab-req', 'panel-req'] };
+  function showTab(name) {
+    Object.entries(tabs).forEach(([k, [t, p]]) => {
+      document.getElementById(t).setAttribute('aria-selected', String(k === name));
+      document.getElementById(p).hidden = k !== name;
+    });
+    state.tab = name; save(state);
+  }
+  document.getElementById('tab-guia').addEventListener('click', () => showTab('guia'));
+  document.getElementById('tab-req').addEventListener('click', () => showTab('req'));
+
+  applyAcct();
+  render();
+  progress();
+  showTab(location.hash === '#requisitos' ? 'req' : state.tab === 'req' ? 'req' : 'guia');
+})();
+</script>
+</body>
+</html>

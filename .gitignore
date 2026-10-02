@@ -1,0 +1,23 @@
+# Secretos — NUNCA al repositorio
+.env
+.env.*
+!.env.example
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+backend/test.db
+
+# Node / Vite
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Sistema / editores
+.DS_Store
+.vscode/
+.idea/
